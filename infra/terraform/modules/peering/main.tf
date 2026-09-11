@@ -84,5 +84,5 @@ resource "aws_security_group_rule" "c1_to_ledger" {
   protocol          = "tcp"
   cidr_blocks       = var.c1_source_cidrs
   security_group_id = var.c2_cluster_security_group_id
-  description       = "C1 frontend -> C2 ledger tier (port ${each.value}) over VPC peering only"
+  description       = "C1 frontend to C2 ledger tier (port ${each.value}) over VPC peering only"
 }
