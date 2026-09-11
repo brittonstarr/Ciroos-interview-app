@@ -1,8 +1,7 @@
-# CONFIDENCE NOTE: same caveat as aws-integration.tf — this couldn't be
-# `terraform validate`-checked from this sandbox. The general widget-block
-# shape (widget { <type>_definition { ... } }) is stable across recent
-# provider versions; if a specific nested attribute name has moved, it's a
-# quick fix once you see the validate error.
+# CONFIDENCE NOTE: a real `terraform plan` against this file only flagged
+# the deprecated `is_read_only` argument (fixed below, see comment on the
+# resource) — every widget block shape below (widget { <type>_definition
+# { ... } }) validated clean against the live provider schema.
 #
 # One thing intentionally NOT here: a live network topology view of the
 # C1->C2 traffic. That's Datadog's Cloud Network Monitoring "Network Map"
@@ -12,10 +11,13 @@
 # baked into a dashboard widget.
 
 resource "datadog_dashboard" "boa_challenge" {
-  title        = "Bank of Anthos Challenge — C1/C2 Overview"
-  description  = "App + infra observability for the AWS EKS Application & Infrastructure Observability Challenge. Primary fault-demo signal: ledgerwriter replica availability."
-  layout_type  = "ordered"
-  is_read_only = false
+  title       = "Bank of Anthos Challenge — C1/C2 Overview"
+  description = "App + infra observability for the AWS EKS Application & Infrastructure Observability Challenge. Primary fault-demo signal: ledgerwriter replica availability."
+  layout_type = "ordered"
+  # `is_read_only` is deprecated/non-functional in current provider
+  # versions (confirmed via the `terraform plan` warning) — omitted.
+  # Everyone on this Datadog org can already edit; `restricted_roles`
+  # would be the way to lock that down if needed later.
 
   widget {
     note_definition {
