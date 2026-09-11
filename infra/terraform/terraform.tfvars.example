@@ -1,0 +1,7 @@
+# Copy to terraform.tfvars and adjust as needed. All values have sane
+# defaults in variables.tf already — you only need this file to override
+# something, e.g. locking down the EKS API endpoint to your own IP:
+#
+# cluster_endpoint_public_access_cidrs = ["203.0.113.4/32"]
+
+project_name = "boa-challenge"
