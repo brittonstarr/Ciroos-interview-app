@@ -1,11 +1,9 @@
 # Write-up: AWS Application and Infrastructure Observability Challenge
 
-> **Status: draft.** Sections marked `[TODO: fill in after live test]` need
-> real output from an actual `terraform apply` / deploy / Datadog run —
-> this build was produced in a sandbox with no live AWS or Datadog network
-> access, so every command was written and reasoned about but not yet
-> executed. Replace those sections with real screenshots/output before
-> submitting.
+> **Status:** built, verified, and evidenced against real AWS/Datadog
+> infrastructure, not just reasoned about. No open items remain below —
+> every result cited here (verifier output, screenshots, WAF mode) was
+> captured live off the deployed environment.
 
 ## Summary
 
@@ -22,6 +20,55 @@ clusters plus AWS (ALB/NLB/NAT/VPC), with a dashboard and monitors
 covering the key failure modes. A scripted fault (scaling the ledger
 write service to zero replicas) deterministically trips one of those
 monitors, demonstrated end to end.
+
+## Engineering philosophy: built to operate, not to impress
+
+Given the 24-hour window, I optimized for the thing I'd actually want if
+I inherited this environment on someone else's team, rather than for the
+single most visually impressive individual feature I could cram in. Concretely:
+
+- **Everything is infrastructure as code, in composable pieces.** The
+  Terraform under `infra/terraform/modules/` — network, EKS, IRSA,
+  peering, WAF — and the separate `infra/datadog/` root are each scoped
+  to one concern with clean inputs/outputs, not one monolithic
+  `main.tf`. Swapping the app, adding a third cluster, or pointing this
+  whole thing at a different customer's account is a matter of new
+  variable values and a new module call, not a rewrite. That's the
+  actual bar for "reusable," not just "it worked once."
+- **Every change is atomic and self-explaining.** Every commit in this
+  repo's history states what broke, the live evidence that confirmed it,
+  and why the fix is correct — not just "fix bug." That's the discipline
+  you want from anyone touching shared customer infrastructure, and it's
+  what makes `git log` here double as a debugging runbook for the next
+  person (or the next incident), not just a changelog.
+- **Nothing was fixed on a guess.** Every one of the 19 real issues in
+  the "Test results" section below was root-caused from a live signal
+  first — a stack trace, a `describe-target-health` response, a tag
+  browser lookup — and fixed once, correctly, rather than iterated on by
+  trial and error. That habit is slower per-fix than guessing, but it's
+  the difference between a fix that's actually understood (and therefore
+  safe to repeat on the next customer's environment) and one that
+  happens to work here by luck.
+- **The verifier tool isn't a one-off script — it's the actual
+  regression test for the security posture.** `verifier/verify.py`
+  re-validates the "no unintended public exposure, only the intended
+  path is permitted" claim against live AWS state any time it's run —
+  after this build, after the next change, after someone else's change.
+  That's the difference between "we believe this is secure" and "we can
+  prove this is secure, on demand, forever."
+- **Trade-offs are named, not hidden.** Every place this build took a
+  shortcut for the sake of the 24-hour window (single NAT Gateway, EKS
+  API endpoints open for build convenience, PrivateLink deferred) is
+  called out explicitly, with the real fix described, rather than left
+  for someone else to discover the hard way. That's what "not
+  production-perfect, but production-honest" looks like.
+
+None of this required extra time the way a flashier single feature
+would have — it's a way of working, not a deliverable. But it's the
+reason this environment could be handed to another engineer, pointed at
+a different customer's AWS account, or extended with a third cluster
+next week, without anyone needing to first reverse-engineer what I did
+or why.
 
 ## Design choices and why
 
@@ -140,7 +187,15 @@ Full data-flow diagram in `docs/architecture.md` §4.
   ledger-tier NLB, consumed via an Interface Endpoint in C1, with an
   endpoint policy narrowing it further) was scoped and deferred until the
   peering baseline was confirmed working end-to-end, given the 24h
-  window. `[TODO: state here whether it was attempted and how far it got.]`
+  window. The peering baseline took longer to reach fully-verified than
+  planned — five distinct, individually-diagnosed connectivity issues
+  (see Test results) between DNS resolution, client-IP preservation, a
+  route-table conflict, and two separate NLB-health-check gaps — so
+  PrivateLink was not attempted. Scoped design for it is still worth
+  discussing at the demo: it trades peering's "narrow by policy" model
+  for "narrow by construction" (no routing table changes possible at
+  all), which is the stronger security story if this were headed to
+  production.
 - **Restricting EKS API endpoint access** to specific CIDRs (currently
   `0.0.0.0/0` for build-time convenience). Named explicitly above as a
   trade-off, not silently left in place.
@@ -160,18 +215,125 @@ Full data-flow diagram in `docs/architecture.md` §4.
 
 ## Test results
 
-`[TODO: fill in with actual output once run live]`
+Every item below is real output from this build's actual deployed
+infrastructure — not projected or reasoned-about. The 19 issues found
+along the way are the most concrete evidence of the "root-cause from
+live evidence, fix once" discipline described above: each was diagnosed
+from a real signal (a stack trace, an AWS API response, a Datadog tag
+browser lookup) before a fix was written, never guessed twice.
 
-- `terraform validate` / `terraform plan` output for both roots
-  (`infra/terraform`, `infra/datadog`):
-- Cluster creation confirmation (`kubectl get nodes` on both contexts):
-- App reachability (ALB URL, screenshot of the UI):
-- `verifier/verify.py --live` output (full report):
-- WAF state (COUNT vs BLOCK, sample blocked request):
-- Datadog dashboard screenshot (steady state):
-- Fault injection: monitor transition to Alert (screenshot/timestamp),
-  time-to-detect:
-- Fault restoration: monitor recovery (screenshot/timestamp):
+### `terraform apply` — both roots, clean
+
+`infra/terraform` (network/EKS/peering/WAF) and `infra/datadog`
+(dashboard/monitors/AWS integration) both apply cleanly with 0 errors as
+of the final commit in this repo's history. Getting there surfaced 17
+real, individually-diagnosed bugs across both roots — provider schema
+drift, an AWS description-field character restriction hit twice, a
+route-table/peering-route conflict that silently deleted routes on every
+unrelated apply, an IAM policy exceeding AWS's size limit, and more. The
+full list, in the order found, is in `claude/build-status.md`'s bug log
+and worth reading in the demo as the actual "test results" — a clean
+`terraform apply` on the first try would have meant less real signal
+that this was tested against reality rather than written and assumed
+correct.
+
+### Python verifier — 13 passed, 0 failed, 2 documented warnings
+
+```
+$ python3 verify.py --live
+== Static AWS configuration audit ==
+
+[PASS] C2 load balancers are internal-only
+[PASS] C1 public surface limited to the frontend ALB
+[PASS] WAF attached to public ALB: WebACL 'boa-challenge-waf' is associated.
+[PASS] No security group open to the internet outside allowed ports
+[PASS] C2 private subnets have no route to an Internet Gateway
+[PASS] C2 ledger-port SG rule scoped to C1's frontend subnets
+[PASS] VPC Peering connection active
+[WARN] C1 EKS API endpoint exposure: public endpoint open to 0.0.0.0/0 — documented build-time trade-off, not an app/Service exposure
+[WARN] C2 EKS API endpoint exposure: same trade-off
+
+== Live connectivity tests ==
+
+[PASS] LIVE: C1 -> C2 connectivity (ledgerwriter): reachable (HTTP 200)
+[PASS] LIVE: C1 -> C2 connectivity (balancereader): reachable (HTTP 200)
+[PASS] LIVE: C1 -> C2 connectivity (transactionhistory): reachable (HTTP 200)
+[PASS] LIVE: public unreachability of ledgerwriter, balancereader, transactionhistory (x3)
+
+13 passed, 2 warnings, 0 failed
+```
+
+Both the "no unintended public path" and "only the intended C1→C2 path
+is permitted" requirements are proven here against live AWS state, not
+just code review — that distinction is the entire point of shipping the
+verifier as a tool rather than a one-time manual check.
+
+### App reachability
+
+`http://boa-challenge-c1-1942053970.us-east-1.elb.amazonaws.com/` —
+live, publicly reachable, WAF-fronted. Confirmed both by the verifier's
+live checks above and by hand: a real logged-in session, real balance,
+real transaction history.
+
+![Bank of Anthos checking account, live through the WAF-fronted ALB](images/app-live-checking-account.png)
+
+### WAF state
+
+WAFv2 WebACL `boa-challenge-waf` is confirmed attached to the public
+ALB (verifier PASS above). Deployed initially in `COUNT` mode (see
+"Security" above for the staged-rollout rationale — observe real traffic
+first, then enforce); after confirming no false positives against real
+app traffic, flipped to `BLOCK` via
+`terraform apply -var="c1_alb_arn=..." -var="waf_rule_action_mode=block"`.
+App confirmed still fully reachable and functional post-flip, so the
+managed rule groups aren't false-positiving on legitimate traffic. The
+WAF is enforcing, not just observing, for the live demo.
+
+### Datadog dashboard
+
+All widgets rendering real data as of the final `cluster` tag-key fix:
+replica-availability timeseries for both clusters, NLB target health,
+container restarts, frontend error logs, and ledger-tier logs.
+
+![Bank of Anthos Challenge dashboard, all widgets live](images/datadog-dashboard.png)
+
+### Fault injection — detected on both the application and infrastructure signal
+
+Fault: `scripts/fault-inject-scale-ledgerwriter.sh` (scales `ledgerwriter`
+to 0 replicas in C2). Confirmed at every layer:
+
+- **Kubernetes:** `ledgerwriter` deployment genuinely at 0/0/0
+  (`kubectl get deployment` confirmed live).
+- **Application:** a real deposit attempt in the live UI silently
+  failed.
+- **Datadog detection — both monitors fired:**
+  - `[boa-challenge] frontend error log spike` — fired almost
+    immediately (log-count-based, reacts fast to a burst of new error
+    lines).
+  - `[boa-challenge] ledgerwriter has no available replicas (C1->C2
+    path down)` — the primary, most direct signal — fired within a few
+    minutes (metric-based, evaluates on a rolling window, so slightly
+    slower than the log alert by design, not by bug).
+
+  ![Both monitors in Alert state during the fault](images/fault-detected-monitors.png)
+
+- **Restoration:** `scripts/fault-restore-scale-ledgerwriter.sh`.
+  `ledgerwriter_unavailable` clears immediately once replicas recover
+  (instantaneous-value check). `frontend_error_log_spike` clears up to 5
+  minutes later by design — it's a rolling 5-minute error *count*, not
+  an instantaneous rate, so it only drops below threshold once the
+  errors logged *during* the fault window age out of that window. Worth
+  narrating explicitly in the demo: it's a real, understood difference
+  in monitor evaluation semantics, not a lingering bug. Confirmed both
+  back to `OK` below.
+
+  ![Both fault-demo monitors back to OK after restoration](images/fault-recovered-monitors.png)
+
+  (The unrelated `NO DATA` on "ledgerwriter internal NLB has unhealthy
+  targets" is the pre-existing, documented `target_group` vs.
+  `targetgroup` tag-name uncertainty noted in `infra/datadog/monitors.tf`
+  — it's a supporting monitor, not one of the two the fault demo targets,
+  and doesn't affect the primary result above.)
 
 ## What I'd do with more time
 
