@@ -14,6 +14,12 @@ metadata:
     service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
     service.beta.kubernetes.io/aws-load-balancer-scheme: "internal"
     service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
+    # target-type "ip" disables client IP preservation by default — the
+    # security group rule and NetworkPolicy that scope access to C1's
+    # subnet CIDRs both depend on seeing the real client IP, so this must
+    # be explicitly enabled or every request looks like it came from the
+    # NLB itself and gets silently dropped by both layers.
+    service.beta.kubernetes.io/aws-load-balancer-target-group-attributes: "preserve_client_ip.enabled=true"
     service.beta.kubernetes.io/aws-load-balancer-name: "boa-challenge-c2-balancereader"
 spec:
   ports:
