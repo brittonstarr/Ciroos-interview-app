@@ -146,6 +146,14 @@ data "aws_caller_identity" "current" {}
 resource "aws_eks_addon" "vpc_cni" {
   cluster_name = aws_eks_cluster.this.name
   addon_name   = "vpc-cni"
+
+  # Turns on the VPC CNI's native NetworkPolicy enforcement (eBPF-based
+  # network policy agent) so the Kubernetes NetworkPolicy manifests in /k8s
+  # are actually enforced, not just documentation. Without this, standard
+  # NetworkPolicy objects are silently ignored on EKS.
+  configuration_values = jsonencode({
+    enableNetworkPolicy = "true"
+  })
 }
 
 resource "aws_eks_addon" "coredns" {

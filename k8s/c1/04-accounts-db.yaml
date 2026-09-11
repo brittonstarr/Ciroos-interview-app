@@ -1,0 +1,100 @@
+# Adapted from upstream accounts-db.yaml. Change from upstream: the DB
+# password is split out of the plaintext ConfigMap into a Secret
+# (accounts-db-secret) — cheap to do while adapting these manifests anyway,
+# and it means `kubectl get configmap -o yaml` no longer prints a password.
+# The rest (non-sensitive connection info) stays a ConfigMap.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: accounts-db-config
+  namespace: boa
+  labels:
+    app: accounts-db
+data:
+  POSTGRES_DB: accounts-db
+  POSTGRES_USER: accounts-admin
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: accounts-db-secret
+  namespace: boa
+  labels:
+    app: accounts-db
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: accounts-pwd
+  ACCOUNTS_DB_URI: postgresql://accounts-admin:accounts-pwd@accounts-db:5432/accounts-db
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: accounts-db
+  namespace: boa
+  labels:
+    application: bank-of-anthos
+    team: accounts
+    tier: db
+spec:
+  ports:
+    - name: tcp
+      port: 5432
+      protocol: TCP
+      targetPort: 5432
+  selector:
+    app: accounts-db
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: accounts-db
+  namespace: boa
+  labels:
+    application: bank-of-anthos
+    team: accounts
+    tier: db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: accounts-db
+  serviceName: accounts-db
+  template:
+    metadata:
+      labels:
+        app: accounts-db
+        application: bank-of-anthos
+        team: accounts
+        tier: db
+    spec:
+      containers:
+        - name: accounts-db
+          image: us-central1-docker.pkg.dev/bank-of-anthos-ci/bank-of-anthos/accounts-db:v0.6.10@sha256:d95c4094c75f69069b915ef3adc99a8f95e43077885140cdeeb90d807ea74eff
+          envFrom:
+            - configMapRef:
+                name: environment-config
+            - configMapRef:
+                name: accounts-db-config
+            - secretRef:
+                name: accounts-db-secret
+            - configMapRef:
+                name: demo-data-config
+          ports:
+            - containerPort: 5432
+          resources:
+            limits:
+              cpu: 250m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - mountPath: /var/lib/postgresql/data
+              name: postgresdb
+              subPath: postgres
+      serviceAccountName: bank-of-anthos
+      volumes:
+        - name: postgresdb
+          emptyDir: {}

@@ -1,0 +1,151 @@
+# Adapted from upstream frontend.yaml. Key change from upstream: the
+# frontend Service is ClusterIP (not the raw `type: LoadBalancer` upstream
+# uses on GKE), fronted instead by an Ingress that the AWS Load Balancer
+# Controller turns into the internet-facing ALB — that's the resource the
+# WAFv2 WebACL gets associated with (see infra/terraform/modules/waf and
+# infra/terraform/README.md's Phase 2 apply).
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: boa
+  labels:
+    application: bank-of-anthos
+    team: frontend
+    tier: web
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+  selector:
+    app: frontend
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: boa
+  labels:
+    application: bank-of-anthos
+    team: frontend
+    tier: web
+spec:
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+        application: bank-of-anthos
+        team: frontend
+        tier: web
+    spec:
+      containers:
+        - name: front
+          image: us-central1-docker.pkg.dev/bank-of-anthos-ci/bank-of-anthos/frontend:v0.6.10@sha256:076294ce717309f711743fa3b72a9809c7f156edf1c4fa58505fd9f436d65345
+          env:
+            - name: VERSION
+              value: v0.6.10
+            - name: PORT
+              value: "8080"
+            - name: ENABLE_TRACING
+              value: "true"
+            - name: SCHEME
+              value: http
+            - name: LOG_LEVEL
+              value: info
+            - name: DEFAULT_USERNAME
+              valueFrom:
+                configMapKeyRef:
+                  name: demo-data-config
+                  key: DEMO_LOGIN_USERNAME
+            - name: DEFAULT_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: demo-data-config
+                  key: DEMO_LOGIN_PASSWORD
+          envFrom:
+            - configMapRef:
+                name: environment-config
+            - configMapRef:
+                name: service-api-config
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 10
+          resources:
+            limits:
+              cpu: 250m
+              memory: 128Mi
+            requests:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["all"]
+            privileged: false
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - mountPath: /tmp
+              name: tmp
+            - mountPath: /tmp/.ssh
+              name: publickey
+              readOnly: true
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      serviceAccountName: bank-of-anthos
+      terminationGracePeriodSeconds: 5
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: publickey
+          secret:
+            secretName: jwt-key
+            items:
+              - key: jwtRS256.key.pub
+                path: publickey
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: frontend
+  namespace: boa
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    alb.ingress.kubernetes.io/healthcheck-path: /ready
+    # Give the ALB a predictable, tag-discoverable name so
+    # scripts/get-alb-info.sh (and the Terraform WAF-association step) can
+    # find it without guessing.
+    alb.ingress.kubernetes.io/load-balancer-name: boa-challenge-c1
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80

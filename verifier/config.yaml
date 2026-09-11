@@ -1,0 +1,35 @@
+# Expected configuration the verifier checks reality against. Keeping this
+# out of the Python file means the tool stays reusable if names/regions/
+# CIDRs change — you edit this, not the code.
+
+project_name: boa-challenge
+
+c1:
+  region: us-east-1
+  vpc_cidr: 10.10.0.0/16
+  # The specific subnets allowed to reach C2's ledger tier (see
+  # infra/terraform/variables.tf c1_private_subnet_cidrs).
+  private_subnet_cidrs:
+    - 10.10.16.0/20
+    - 10.10.32.0/20
+  # Name of the one Ingress/ALB expected to be internet-facing.
+  expected_public_alb_name_contains: "boa-challenge-c1"
+  kubectl_context: c1
+
+c2:
+  region: us-west-2
+  vpc_cidr: 10.20.0.0/16
+  kubectl_context: c2
+  # Services expected to be reachable ONLY from C1, over the private path,
+  # on this port — never from the public internet.
+  ledger_services:
+    - name: ledgerwriter
+      port: 8080
+    - name: balancereader
+      port: 8080
+    - name: transactionhistory
+      port: 8080
+
+# Ports the ALB's own security group is allowed to expose to 0.0.0.0/0 —
+# the one deliberate public path in the whole environment.
+allowed_public_ports: [80, 443]

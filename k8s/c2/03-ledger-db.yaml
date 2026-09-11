@@ -1,0 +1,100 @@
+# Adapted from upstream ledger-db.yaml. Same secret/configmap split as
+# accounts-db in C1. ledger-db has no LoadBalancer/Ingress at all — it's
+# reachable only from ledgerwriter/balancereader/transactionhistory in this
+# same cluster/namespace, enforced by 07-networkpolicy.yaml.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ledger-db-config
+  namespace: boa
+  labels:
+    app: ledger-db
+data:
+  POSTGRES_DB: postgresdb
+  POSTGRES_USER: admin
+  SPRING_DATASOURCE_URL: jdbc:postgresql://ledger-db:5432/postgresdb
+  SPRING_DATASOURCE_USERNAME: admin
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ledger-db-secret
+  namespace: boa
+  labels:
+    app: ledger-db
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: password
+  SPRING_DATASOURCE_PASSWORD: password
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ledger-db
+  namespace: boa
+  labels:
+    application: bank-of-anthos
+    team: ledger
+    tier: db
+spec:
+  ports:
+    - name: tcp
+      port: 5432
+      targetPort: 5432
+  selector:
+    app: ledger-db
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ledger-db
+  namespace: boa
+  labels:
+    application: bank-of-anthos
+    team: ledger
+    tier: db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ledger-db
+  serviceName: ledger-db
+  template:
+    metadata:
+      labels:
+        app: ledger-db
+        application: bank-of-anthos
+        team: ledger
+        tier: db
+    spec:
+      containers:
+        - name: postgres
+          image: us-central1-docker.pkg.dev/bank-of-anthos-ci/bank-of-anthos/ledger-db:v0.6.10@sha256:891cb7afe34f358ce7ed7002a1923b25e113b30bca44fecb10cc8b116d665a03
+          envFrom:
+            - configMapRef:
+                name: environment-config
+            - configMapRef:
+                name: ledger-db-config
+            - secretRef:
+                name: ledger-db-secret
+            - configMapRef:
+                name: demo-data-config
+          ports:
+            - containerPort: 5432
+          resources:
+            limits:
+              cpu: 250m
+              memory: 1Gi
+            requests:
+              cpu: 100m
+              memory: 512Mi
+          volumeMounts:
+            - mountPath: /var/lib/postgresql/data
+              name: postgresdb
+              subPath: postgres
+      serviceAccountName: bank-of-anthos
+      volumes:
+        - name: postgresdb
+          emptyDir: {}

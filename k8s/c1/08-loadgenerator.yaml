@@ -1,0 +1,55 @@
+# Adapted from upstream loadgenerator.yaml — namespaced, no other changes.
+# Talks to `frontend` over in-cluster ClusterIP DNS — never touches the
+# ALB/WAF/internet, same as every other in-cluster caller.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loadgenerator
+  namespace: boa
+  labels:
+    team: loadgenerator
+    tier: test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loadgenerator
+  template:
+    metadata:
+      labels:
+        app: loadgenerator
+        team: loadgenerator
+        tier: test
+    spec:
+      containers:
+        - name: loadgenerator
+          image: us-central1-docker.pkg.dev/bank-of-anthos-ci/bank-of-anthos/loadgenerator:v0.6.10@sha256:dd7e27f1b1bcbb9c85070eb900a6060d098d06d62ef03f98182424919895df83
+          env:
+            - name: FRONTEND_ADDR
+              value: frontend:80
+            - name: USERS
+              value: "5"
+            - name: LOG_LEVEL
+              value: error
+          resources:
+            limits:
+              cpu: 250m
+              memory: 1Gi
+            requests:
+              cpu: 100m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["all"]
+            privileged: false
+            readOnlyRootFilesystem: true
+      restartPolicy: Always
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      serviceAccountName: bank-of-anthos
+      terminationGracePeriodSeconds: 5

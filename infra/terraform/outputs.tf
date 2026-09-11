@@ -34,6 +34,11 @@ output "peering_connection_id" {
   value = module.peering.peering_connection_id
 }
 
+output "c2_cluster_security_group_id" {
+  description = "Used by scripts/inject-fault-block-c2-sg.sh / restore-fault-... to target the exact SG rule to revoke/restore."
+  value       = module.eks_c2.node_security_group_id
+}
+
 output "waf_web_acl_arn" {
   value = module.waf.web_acl_arn
 }

@@ -1,0 +1,19 @@
+# Template — DO NOT apply directly. Rendered by
+# scripts/render-c1-service-api-config.sh into 02-service-api-config.yaml
+# after C2's internal NLBs exist, substituting the placeholders below with
+# their actual DNS names. This is the file that actually implements the
+# "frontend (C1) calls the ledger tier (C2) privately" requirement — the
+# three ledger addresses are the only ones that cross the cluster/region
+# boundary; contacts/userservice stay in-cluster.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: service-api-config
+  namespace: boa
+data:
+  CONTACTS_API_ADDR: "contacts:8080"
+  USERSERVICE_API_ADDR: "userservice:8080"
+  TRANSACTIONS_API_ADDR: "__LEDGERWRITER_ADDR__"
+  BALANCES_API_ADDR: "__BALANCEREADER_ADDR__"
+  HISTORY_API_ADDR: "__TRANSACTIONHISTORY_ADDR__"

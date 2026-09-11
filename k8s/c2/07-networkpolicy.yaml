@@ -1,0 +1,59 @@
+# Pod-level defense-in-depth for C2, layered under the SG rule in
+# infra/terraform/modules/peering (which already restricts to C1's private
+# subnet CIDRs on the ledger ports at the VPC level) and the fact that C2
+# has zero public exposure at the network layer to begin with. This adds a
+# third, independent layer: even a Pod that somehow got traffic past the SG
+# can only reach the specific ledger-tier Pods, not e.g. ledger-db directly.
+#
+# 10.10.0.0/16 is C1's VPC CIDR (infra/terraform/variables.tf
+# c1_vpc_cidr) — update here if that value changes.
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: boa
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-c1-to-ledger-tier
+  namespace: boa
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: ["ledgerwriter", "balancereader", "transactionhistory"]
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 10.10.0.0/16
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ledger-tier-to-db
+  namespace: boa
+spec:
+  podSelector:
+    matchLabels:
+      app: ledger-db
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: ["ledgerwriter", "balancereader", "transactionhistory"]
+      ports:
+        - protocol: TCP
+          port: 5432

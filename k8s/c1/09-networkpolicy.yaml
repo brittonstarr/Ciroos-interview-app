@@ -1,0 +1,97 @@
+# Pod-level defense-in-depth for C1. This is deliberately a *second* layer,
+# not the primary boundary — the primary boundary is "no public subnet for
+# anything but the ALB, security groups, and the peering route scope."
+# NetworkPolicy narrows it further to "which specific Pods can talk to
+# which specific Pods," which security groups alone can't express at
+# EKS's default (node-shared) security-group granularity.
+#
+# Requires the VPC CNI network policy agent (enabled in
+# infra/terraform/modules/eks — aws_eks_addon.vpc_cni configuration_values).
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: boa
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-ingress
+  namespace: boa
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+  policyTypes: ["Ingress"]
+  ingress:
+    # From the ALB (its ENIs live in-VPC) and from loadgenerator.
+    - from:
+        - ipBlock:
+            cidr: 10.10.0.0/16
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-userservice-ingress
+  namespace: boa
+spec:
+  podSelector:
+    matchLabels:
+      app: userservice
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: frontend
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-contacts-ingress
+  namespace: boa
+spec:
+  podSelector:
+    matchLabels:
+      app: contacts
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: frontend
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-accounts-db-ingress
+  namespace: boa
+spec:
+  podSelector:
+    matchLabels:
+      app: accounts-db
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: userservice
+        - podSelector:
+            matchLabels:
+              app: contacts
+      ports:
+        - protocol: TCP
+          port: 5432

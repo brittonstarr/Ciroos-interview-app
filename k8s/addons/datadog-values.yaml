@@ -1,0 +1,67 @@
+# Datadog Agent Helm values — shared by both clusters. Cluster-specific
+# tags (cluster:c1 / cluster:c2, region) are added via --set flags in
+# scripts/09-install-datadog-agent.sh so this one file stays common.
+#
+# What this turns on, and why:
+#   - logs + containerCollectAll: every container's stdout/stderr, searchable
+#     in Datadog — the "logs" half of the observability requirement, no app
+#     changes needed.
+#   - Kubernetes/container/cluster metrics (on by default via the chart) —
+#     the "infrastructure metrics" half.
+#   - APM + OTLP receiver: Bank of Anthos doesn't emit Datadog-native traces
+#     out of the box (its ENABLE_TRACING flag targets a different backend),
+#     so this is turned on ready-to-use rather than fully wired end-to-end —
+#     called out explicitly in the write-up as a time-boxed limitation, not
+#     an oversight.
+#   - Cloud Network Monitoring (NPM): gives a live network-flow map between
+#     Pods/nodes — directly visualizes the C1->C2 traffic this whole
+#     challenge is about, so worth the extra system-probe container even
+#     though it's not strictly required.
+#   - Live processes: cheap to enable, useful during the live demo.
+
+datadog:
+  apiKeyExistingSecret: datadog-secret
+  site: datadoghq.com # override in the install script if your org's Datadog site differs
+
+  logs:
+    enabled: true
+    containerCollectAll: true
+
+  apm:
+    portEnabled: true
+    socketEnabled: true
+
+  otlp:
+    receiver:
+      protocols:
+        grpc:
+          enabled: true
+        http:
+          enabled: true
+
+  processAgent:
+    enabled: true
+    processCollection: true
+
+  networkMonitoring:
+    enabled: true
+
+  kubeStateMetricsEnabled: true
+  kubeStateMetricsCore:
+    enabled: true
+
+agents:
+  containers:
+    agent:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 250m
+          memory: 512Mi
+
+clusterAgent:
+  enabled: true
+  metricsProvider:
+    enabled: false # not using Datadog-driven HPA here; skip the extra surface area
