@@ -32,7 +32,7 @@ resource "datadog_dashboard" "boa_challenge" {
     timeseries_definition {
       title = "Ledger-tier replica availability (C2)"
       request {
-        q            = "avg:kubernetes_state.deployment.replicas_available{cluster_name:${local.c2_cluster}} by {kube_deployment}"
+        q            = "avg:kubernetes_state.deployment.replicas_available{cluster:${local.c2_cluster}} by {kube_deployment}"
         display_type = "line"
       }
     }
@@ -42,7 +42,7 @@ resource "datadog_dashboard" "boa_challenge" {
     timeseries_definition {
       title = "Identity/UI-tier replica availability (C1)"
       request {
-        q            = "avg:kubernetes_state.deployment.replicas_available{cluster_name:${local.c1_cluster}} by {kube_deployment}"
+        q            = "avg:kubernetes_state.deployment.replicas_available{cluster:${local.c1_cluster}} by {kube_deployment}"
         display_type = "line"
       }
     }
@@ -82,7 +82,7 @@ resource "datadog_dashboard" "boa_challenge" {
   widget {
     log_stream_definition {
       title = "Ledger-tier logs (all services)"
-      query = "cluster_name:${local.c2_cluster}"
+      query = "cluster:${local.c2_cluster}"
     }
   }
 }

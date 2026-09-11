@@ -1,14 +1,15 @@
 locals {
   # NOT the AWS/EKS cluster name (that's
   # data.terraform_remote_state.infra.outputs.c2_cluster_name, e.g.
-  # "boa-challenge-c2-eks") — this is the literal `cluster_name` tag
-  # value Kubernetes-state metrics actually carry in Datadog, which comes
-  # from `datadog.clusterName` in scripts/09-install-datadog-agent.sh
-  # (`install_one c1 c1 ...` / `install_one c2 c2 ...` — the short "c1"/
-  # "c2" form, by design decoupled from the AWS resource name). Confirmed
-  # live: widgets/monitors querying the EKS cluster name here returned no
-  # data at all — including the primary fault-demo monitor below, which
-  # would never have fired during the demo.
+  # "boa-challenge-c2-eks"). This is the value of the `cluster` tag
+  # (not `cluster_name` — confirmed live: a widget querying
+  # `project:boa-challenge`, from the same datadog.tags[] global-tag list
+  # in scripts/09-install-datadog-agent.sh as `cluster:c1`/`cluster:c2`,
+  # returned real data, while every `cluster_name:...` query returned
+  # none — so `cluster_name` isn't a tag key these metrics carry at all;
+  # `cluster` is). See scripts/09-install-datadog-agent.sh's
+  # `--set-string "datadog.tags[0]=cluster:${cluster_tag}"` for where
+  # this actually comes from.
   c2_cluster = "c2"
   c1_cluster = "c1"
 }
@@ -29,7 +30,7 @@ resource "datadog_monitor" "ledgerwriter_unavailable" {
     @slack-boa-challenge-alerts
   EOT
 
-  query = "max(last_5m):avg:kubernetes_state.deployment.replicas_available{kube_deployment:ledgerwriter,cluster_name:${local.c2_cluster}} < 1"
+  query = "max(last_5m):avg:kubernetes_state.deployment.replicas_available{kube_deployment:ledgerwriter,cluster:${local.c2_cluster}} < 1"
 
   monitor_thresholds {
     critical = 1
