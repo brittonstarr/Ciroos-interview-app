@@ -7,6 +7,14 @@
 #
 # 10.10.0.0/16 is C1's VPC CIDR (infra/terraform/variables.tf
 # c1_vpc_cidr) — update here if that value changes.
+#
+# 10.20.0.0/16 (C2's own VPC CIDR) is also admitted below on the same
+# ports, for the same reason as the mirrored security-group rule in
+# modules/peering: NLB health-check probes for target-type=ip Services
+# originate from the NLB's own ENIs inside C2's VPC, not from C1. Without
+# this, NetworkPolicy blocks health checks even after the security group
+# allows them, every target reports unhealthy, and the NLB drops all
+# traffic regardless of whether C1's real requests would otherwise pass.
 
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -33,6 +41,8 @@ spec:
     - from:
         - ipBlock:
             cidr: 10.10.0.0/16
+        - ipBlock:
+            cidr: 10.20.0.0/16 # NLB health checks — see file header
       ports:
         - protocol: TCP
           port: 8080
