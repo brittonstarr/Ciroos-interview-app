@@ -76,6 +76,11 @@ resource "datadog_dashboard" "boa_challenge" {
     log_stream_definition {
       title = "Frontend errors"
       query = "service:frontend status:error"
+      # Without these, the widget only shows the status-bar timeline —
+      # message text is hidden until you click into a log line. Confirmed
+      # live (widget rendered entries but no visible text either way).
+      show_message_column  = true
+      message_display      = "expanded-md"
     }
   }
 
@@ -83,6 +88,8 @@ resource "datadog_dashboard" "boa_challenge" {
     log_stream_definition {
       title = "Ledger-tier logs (all services)"
       query = "cluster:${local.c2_cluster}"
+      show_message_column  = true
+      message_display      = "expanded-md"
     }
   }
 }
