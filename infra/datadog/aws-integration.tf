@@ -74,7 +74,14 @@ data "aws_iam_policy_document" "datadog_trust" {
     condition {
       test     = "StringEquals"
       variable = "sts:ExternalId"
-      values   = [datadog_integration_aws_account.this.auth_config[0].aws_auth_config_role[0].external_id]
+      # auth_config / aws_auth_config_role are single nested blocks in this
+      # provider's schema ("(Block)", not "(Block List)") — the provider
+      # was migrated to the modern plugin framework, which exposes a
+      # single nested block as an object attribute, not a one-element
+      # list like the older SDKv2-style blocks. So this is plain
+      # attribute (dot) access, no `[0]` index — real `terraform plan`
+      # confirmed the index syntax is rejected outright.
+      values = [datadog_integration_aws_account.this.auth_config.aws_auth_config_role.external_id]
     }
   }
 }
