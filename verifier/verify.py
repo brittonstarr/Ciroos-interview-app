@@ -257,7 +257,10 @@ def check_ledger_sg_rule_scoped_to_c1(report: Report, cfg: dict) -> None:
     specific private subnets, never 0.0.0.0/0 and never the whole C1 VPC."""
     region = cfg["c2"]["region"]
     ports = {s["port"] for s in cfg["c2"]["ledger_services"]}
-    expected_cidrs = set(cfg["c1"]["private_subnet_cidrs"])
+    # C1's frontend subnets (real client traffic) plus any documented
+    # exceptions (e.g. C2's own VPC CIDR for NLB health-check probes —
+    # see config.yaml's comment on c2.additional_allowed_cidrs).
+    expected_cidrs = set(cfg["c1"]["private_subnet_cidrs"]) | set(cfg["c2"].get("additional_allowed_cidrs", []))
     c1_vpc_cidr = ipaddress.ip_network(cfg["c1"]["vpc_cidr"])
 
     ec2 = boto3.client("ec2", region_name=region)

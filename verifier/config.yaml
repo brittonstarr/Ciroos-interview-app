@@ -29,6 +29,15 @@ c2:
       port: 8080
     - name: transactionhistory
       port: 8080
+  # C2's own VPC CIDR is a deliberate second exception on the ledger-port
+  # SG rule, not a leak: for target-type=ip NLBs, health-check probes
+  # originate from the NLB's own ENIs inside C2's own VPC, not from C1
+  # (see infra/terraform/modules/peering/main.tf
+  # aws_security_group_rule.c2_nlb_health_check for the full rationale).
+  # Without this, the verifier would flag legitimate, narrowly-scoped
+  # health-check traffic as an "unexpected source."
+  additional_allowed_cidrs:
+    - 10.20.0.0/16
 
 # Ports the ALB's own security group is allowed to expose to 0.0.0.0/0 —
 # the one deliberate public path in the whole environment.
