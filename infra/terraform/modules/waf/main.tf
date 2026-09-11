@@ -13,7 +13,7 @@ locals {
 
 resource "aws_wafv2_web_acl" "this" {
   name        = "${var.name_prefix}-waf"
-  description = "WAF for ${var.name_prefix} public ALB (frontend)"
+  description = "WAF for ${var.name_prefix} public ALB, frontend"
   scope       = "REGIONAL"
 
   default_action {
