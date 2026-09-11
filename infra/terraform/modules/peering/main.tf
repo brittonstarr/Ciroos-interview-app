@@ -124,5 +124,5 @@ resource "aws_security_group_rule" "c2_nlb_health_check" {
   protocol          = "tcp"
   cidr_blocks       = [var.c2_vpc_cidr]
   security_group_id = var.c2_cluster_security_group_id
-  description       = "NLB health check probes (port ${each.value}) - originate from within C2's own VPC"
+  description       = "NLB health check probes (port ${each.value}) - originate from inside the C2 VPC"
 }
