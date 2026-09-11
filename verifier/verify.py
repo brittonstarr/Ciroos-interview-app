@@ -227,13 +227,27 @@ def check_c2_private_subnets_have_no_igw_route(report: Report, cfg: dict) -> Non
     )["InternetGateways"]
     igw_ids = {igw["InternetGatewayId"] for igw in igws}
 
+    # Identify *private* subnets directly, by the same tag our own Terraform
+    # module (infra/terraform/modules/network) and the AWS Load Balancer
+    # Controller both use to mean "private/internal" —
+    # `kubernetes.io/role/internal-elb`. This is more robust than assuming
+    # the public route table is the VPC's implicit "Main" route table: our
+    # module creates its own explicit `aws_route_table.public` with its own
+    # subnet associations (Main=false), so a Main-flag-based skip
+    # incorrectly treats that legitimate public route table as private.
+    private_subnets = ec2.describe_subnets(
+        Filters=[{"Name": "vpc-id", "Values": [vpc_id]}, {"Name": "tag-key", "Values": ["kubernetes.io/role/internal-elb"]}]
+    )["Subnets"]
+    private_subnet_ids = {s["SubnetId"] for s in private_subnets}
+
     route_tables = ec2.describe_route_tables(Filters=[{"Name": "vpc-id", "Values": [vpc_id]}])["RouteTables"]
     offenders = []
+    checked = 0
     for rt in route_tables:
-        # Skip the main/public route table (it legitimately routes 0.0.0.0/0 -> IGW for the NAT Gateway's own subnet).
-        is_main = any(a.get("Main") for a in rt.get("Associations", []))
-        if is_main:
-            continue
+        assoc_subnet_ids = {a.get("SubnetId") for a in rt.get("Associations", []) if a.get("SubnetId")}
+        if not (assoc_subnet_ids & private_subnet_ids):
+            continue  # not a private-subnet route table — e.g. the public route table, or an unrelated one
+        checked += 1
         for route in rt.get("Routes", []):
             if route.get("DestinationCidrBlock") == "0.0.0.0/0" and route.get("GatewayId") in igw_ids:
                 offenders.append(rt["RouteTableId"])
@@ -248,7 +262,8 @@ def check_c2_private_subnets_have_no_igw_route(report: Report, cfg: dict) -> Non
         report.add(
             "C2 private subnets have no route to an Internet Gateway",
             PASS,
-            f"Checked {len(route_tables)} route table(s) in C2's VPC; only the NAT-Gateway-owning public route table has an IGW route.",
+            f"Checked {checked} private-subnet route table(s) in C2's VPC (identified by the "
+            "kubernetes.io/role/internal-elb subnet tag); none have a route to an Internet Gateway.",
         )
 
 
@@ -386,7 +401,7 @@ def live_positive_test(report: Report, cfg: dict) -> None:
                 "Could not read the configured address from the frontend Pod's environment.",
             )
             continue
-        ok, detail = _kubectl_curl(ctx, pod, addr, path="/ready", timeout=5)
+        ok, detail = _kubectl_http_get(ctx, pod, addr, path="/ready", timeout=5)
         report.add(
             f"LIVE: C1 -> C2 connectivity ({svc['name']})",
             PASS if ok else FAIL,
@@ -447,16 +462,33 @@ def _service_api_addr_env_value(ctx: str, pod: str, svc_name: str) -> Optional[s
         return None
 
 
-def _kubectl_curl(ctx: str, pod: str, addr: str, path: str, timeout: int) -> tuple[bool, str]:
+def _kubectl_http_get(ctx: str, pod: str, addr: str, path: str, timeout: int) -> tuple[bool, str]:
+    """GET a URL from inside `pod` via kubectl exec. Uses python3 -c rather
+    than wget/curl: Bank of Anthos's app images are minimal (no shell
+    utilities baked in — confirmed live: `wget` exits 127, not found), but
+    every service here is a Python (or JVM-with-no-extra-tools) container
+    where python3 itself is guaranteed present, since it's what runs the
+    app. This avoids depending on tooling the app image was never meant
+    to ship."""
     url = f"http://{addr}{path}"
+    code = (
+        "import sys,urllib.request\n"
+        "try:\n"
+        f"    r = urllib.request.urlopen({url!r}, timeout={timeout})\n"
+        "    print(r.status)\n"
+        "    sys.exit(0 if r.status < 400 else 1)\n"
+        "except Exception as e:\n"
+        "    print('ERROR:', e)\n"
+        "    sys.exit(1)\n"
+    )
     try:
         out = subprocess.run(
-            ["kubectl", "--context", ctx, "-n", "boa", "exec", pod, "--",
-             "wget", "-q", "-T", str(timeout), "-O", "-", url],
+            ["kubectl", "--context", ctx, "-n", "boa", "exec", pod, "--", "python3", "-c", code],
             capture_output=True, text=True, timeout=timeout + 5,
         )
         ok = out.returncode == 0
-        return ok, f"{url} -> {'reachable' if ok else 'unreachable (rc=' + str(out.returncode) + ')'}"
+        detail = out.stdout.strip() or out.stderr.strip()
+        return ok, f"{url} -> {'reachable (HTTP ' + detail + ')' if ok else 'unreachable: ' + detail}"
     except (subprocess.SubprocessError, FileNotFoundError) as e:
         return False, f"{url} -> exec failed: {e}"
 

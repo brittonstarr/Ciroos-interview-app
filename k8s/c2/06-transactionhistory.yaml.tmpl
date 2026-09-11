@@ -1,5 +1,9 @@
 # Adapted from upstream transaction-history.yaml — same internal-NLB
-# pattern as ledgerwriter (see comments there).
+# pattern as ledgerwriter (see comments there, including the
+# aws-load-balancer-security-groups annotation below).
+#
+# This is a .tmpl: __C2_CLUSTER_SG_ID__ is filled in at deploy time by
+# scripts/04-deploy-c2.sh from `terraform output c2_cluster_security_group_id`.
 
 apiVersion: v1
 kind: Service
@@ -21,6 +25,10 @@ metadata:
     # NLB itself and gets silently dropped by both layers.
     service.beta.kubernetes.io/aws-load-balancer-target-group-attributes: "preserve_client_ip.enabled=true"
     service.beta.kubernetes.io/aws-load-balancer-name: "boa-challenge-c2-txnhistory"
+    # See the detailed comment on this same annotation in
+    # 04-ledgerwriter.yaml.tmpl: without it, AWS LBC auto-creates a
+    # per-Service SG open to 0.0.0.0/0 on the target port by default.
+    service.beta.kubernetes.io/aws-load-balancer-security-groups: "__C2_CLUSTER_SG_ID__"
 spec:
   ports:
     - name: http

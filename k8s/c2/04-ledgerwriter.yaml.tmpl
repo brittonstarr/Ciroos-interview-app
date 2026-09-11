@@ -4,6 +4,10 @@
 # frontend reaches over the VPC Peering connection (and, in Phase 2, what
 # gets wrapped in a VPC Endpoint Service for PrivateLink). No public IP is
 # ever allocated for this Service.
+#
+# This is a .tmpl: __C2_CLUSTER_SG_ID__ is filled in at deploy time by
+# scripts/04-deploy-c2.sh from `terraform output c2_cluster_security_group_id`
+# — see the aws-load-balancer-security-groups annotation below for why.
 
 apiVersion: v1
 kind: Service
@@ -25,6 +29,16 @@ metadata:
     # NLB itself and gets silently dropped by both layers.
     service.beta.kubernetes.io/aws-load-balancer-target-group-attributes: "preserve_client_ip.enabled=true"
     service.beta.kubernetes.io/aws-load-balancer-name: "boa-challenge-c2-ledgerwriter"
+    # Without this, AWS Load Balancer Controller auto-creates its own
+    # "[k8s] Managed SecurityGroup for LoadBalancer" per Service and opens
+    # it to 0.0.0.0/0 on the target port — its documented default for a
+    # target-type=ip NLB, since an NLB has no security group of its own to
+    # scope traffic from otherwise. Handing it our own EKS cluster security
+    # group here instead makes that group the NLB's frontend SG too, so the
+    # exact same C1-subnet + health-check-CIDR rules we already put on it
+    # (infra/terraform/modules/peering) govern both the LB and the targets
+    # — one security group, one source of truth, no wide-open fallback.
+    service.beta.kubernetes.io/aws-load-balancer-security-groups: "__C2_CLUSTER_SG_ID__"
 spec:
   ports:
     - name: http

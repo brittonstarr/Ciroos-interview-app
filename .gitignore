@@ -2,6 +2,8 @@
 .terraform/
 *.tfstate
 *.tfstate.*
+tfplan
+*.tfplan
 crash.log
 crash.*.log
 override.tf
@@ -27,3 +29,6 @@ venv/
 # Generated at deploy time — not checked in
 scripts/.c2-endpoints.env
 k8s/c1/02-service-api-config.yaml
+k8s/c2/04-ledgerwriter.yaml
+k8s/c2/05-balancereader.yaml
+k8s/c2/06-transactionhistory.yaml
