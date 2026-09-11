@@ -48,7 +48,7 @@ spec:
             - name: PORT
               value: "8080"
             - name: ENABLE_TRACING
-              value: "true"
+              value: "false" # Stackdriver-only upstream; no GCP ADC available on EKS. Datadog APM is the tracing backend here instead.
             - name: LOG_LEVEL
               value: info
           envFrom:
