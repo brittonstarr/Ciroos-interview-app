@@ -226,6 +226,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "waf_logs" {
   rule {
     id     = "expire-after-14-days"
     status = "Enabled"
+    filter {} # empty filter = applies to every object in the bucket
     expiration {
       days = 14
     }
