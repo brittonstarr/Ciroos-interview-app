@@ -1,6 +1,16 @@
 locals {
-  c2_cluster = data.terraform_remote_state.infra.outputs.c2_cluster_name
-  c1_cluster = data.terraform_remote_state.infra.outputs.c1_cluster_name
+  # NOT the AWS/EKS cluster name (that's
+  # data.terraform_remote_state.infra.outputs.c2_cluster_name, e.g.
+  # "boa-challenge-c2-eks") — this is the literal `cluster_name` tag
+  # value Kubernetes-state metrics actually carry in Datadog, which comes
+  # from `datadog.clusterName` in scripts/09-install-datadog-agent.sh
+  # (`install_one c1 c1 ...` / `install_one c2 c2 ...` — the short "c1"/
+  # "c2" form, by design decoupled from the AWS resource name). Confirmed
+  # live: widgets/monitors querying the EKS cluster name here returned no
+  # data at all — including the primary fault-demo monitor below, which
+  # would never have fired during the demo.
+  c2_cluster = "c2"
+  c1_cluster = "c1"
 }
 
 # --- PRIMARY monitor for the live fault demo --------------------------------
