@@ -101,14 +101,24 @@ resource "aws_route_table" "private" {
   count  = length(aws_subnet.private)
   vpc_id = aws_vpc.this.id
 
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = var.single_nat_gateway ? aws_nat_gateway.this[0].id : aws_nat_gateway.this[count.index].id
-  }
-
+  # No inline `route` block here, deliberately. The peering module adds
+  # its own routes to these same tables via standalone `aws_route`
+  # resources — if this resource also declared an inline `route` block,
+  # Terraform would treat it as the *complete* authoritative route list
+  # for the table and delete the peering routes as "drift" on every
+  # apply that touches this resource, even unrelated ones. The NAT route
+  # is managed below as its own standalone `aws_route` resource instead,
+  # so nothing owns the whole table and the two route sources coexist.
   tags = merge(var.tags, {
     Name = "${var.name_prefix}-private-rt-${count.index}"
   })
+}
+
+resource "aws_route" "private_nat" {
+  count                  = length(aws_route_table.private)
+  route_table_id         = aws_route_table.private[count.index].id
+  destination_cidr_block = "0.0.0.0/0"
+  nat_gateway_id         = var.single_nat_gateway ? aws_nat_gateway.this[0].id : aws_nat_gateway.this[count.index].id
 }
 
 resource "aws_route_table_association" "private" {
