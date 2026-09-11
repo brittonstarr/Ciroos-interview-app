@@ -104,3 +104,25 @@ resource "aws_security_group_rule" "c1_to_ledger" {
   security_group_id = var.c2_cluster_security_group_id
   description       = "C1 frontend to C2 ledger tier (port ${each.value}) over VPC peering only"
 }
+
+# NLB health checks for target-type=ip Services originate from the NLB's
+# own network interfaces, which live inside C2's own VPC — not from C1.
+# Without this, the rule above (scoped only to C1's CIDRs) never admits
+# health-check traffic, every target reports FailedHealthChecks, and the
+# NLB silently drops all connections regardless of whether real C1 client
+# traffic would otherwise be allowed. Scoped to C2's whole VPC CIDR (not
+# 0.0.0.0/0) since that's precisely where the NLB's ENIs are provisioned;
+# this is standard, necessary AWS NLB behavior, not a broadened exposure —
+# nothing outside C2's own VPC gains access via this rule.
+resource "aws_security_group_rule" "c2_nlb_health_check" {
+  provider = aws.c2
+
+  for_each          = toset([for p in var.ledger_service_ports : tostring(p)])
+  type              = "ingress"
+  from_port         = tonumber(each.value)
+  to_port           = tonumber(each.value)
+  protocol          = "tcp"
+  cidr_blocks       = [var.c2_vpc_cidr]
+  security_group_id = var.c2_cluster_security_group_id
+  description       = "NLB health check probes (port ${each.value}) - originate from within C2's own VPC"
+}
